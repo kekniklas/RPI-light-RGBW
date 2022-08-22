@@ -1,0 +1,92 @@
+
+#!/usr/bin/python3
+import queue
+from threading import Thread
+import paho.mqtt.client as mqtt
+import RPi.GPIO as GPIO
+from time import sleep, perf_counter
+a = b'[100,100,100,100]'
+x = b'[100,100,100,100]'
+EN = 0
+RF_alt = 100
+R = 0
+
+
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(29, GPIO.OUT)
+GPIO.setup(31, GPIO.OUT)
+GPIO.setup(33, GPIO.OUT)
+GPIO.setup(35, GPIO.OUT)
+
+LEDR = GPIO.PWM(35, 1000)	#alle R variablen haben bezug auf die Farbe ROT
+LEDG = GPIO.PWM(33, 1000)
+LEDB = GPIO.PWM(31, 1000)
+LEDW = GPIO.PWM(29, 1000)
+
+LEDR.start(0)
+LEDG.start(0)
+LEDB.start(0)
+LEDW.start(0)
+
+qLicht = queue.Queue()  #queu for fn2 mqqt Light value
+qBlink = queue.Queue()  #queu for fn3 mqtt Blink Value
+
+def fn1():
+        print("fn1")
+        client = mqtt.Client("mqtt-test") # client ID "mqtt-test"
+        client.connect('127.0.0.1', 1883)
+        client.subscribe([("/Licht/V",0),( "/Licht/Blink",1)])
+        client.on_message = on_message
+        client.loop_forever()
+
+def on_message(client, userdata, msg):
+        print(msg.payload)
+        if  msg.topic == "/Licht/V":
+                qLicht.put(msg.payload)
+#               sleep(0.1)
+        if msg.topic == "/Licht/Blink":
+                qBlink.put(msg.payload)
+#               sleep(0.1)
+#Helligkeit LEDS aus String auslesen und in int Konvertieren/ PWM PIN ansteuern
+def fn2():
+        a = qLicht.get()
+        print(a)
+        R = (int(a[1:4]))-100
+        G = (int(a[5:8]))-100
+        B = (int(a[9:12]))-100
+        W = (int(a[13:16]))-100
+        LEDR.ChangeDutyCycle(R)
+        LEDG.ChangeDutyCycle(G)
+        LEDB.ChangeDutyCycle(B)
+        LEDW.ChangeDutyCycle(W)
+        print("LICHT", R)
+#Blink
+def fn3():
+        global RF_alt
+        blinkvalue = qBlink.get()
+        print(blinkvalue)
+        RF = (int(blinkvalue[3:6]))-99
+#       GF = (int(xx[7:10]))-100
+#       BF = (int(xx[7:10]))-100
+#       WF = (int(xx[7:10]))-100
+        EN = (int(blinkvalue[1:2]))
+        if (EN == 1)and (RF != RF_alt):         #Wenn Blink aktiv Frequnz ändern
+                print("BLINK", RF)
+                RF_alt = RF
+                LEDR.ChangeFrequency(RF)
+        if (EN == 0):
+                LEDR.ChangeFrequency(1000)      #wenn Blink deaktiviert Frequenz auf Standart
+
+
+
+new_MQTT=Thread(target=fn1)
+new_MQTT.start()
+Blink=Thread(target=fn3)
+Blink.start()
+Licht=Thread(target=fn2)
+Licht.start()
+
+while True:
+        fn3()
+        fn2()
+
