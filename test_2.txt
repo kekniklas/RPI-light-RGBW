@@ -1,0 +1,122 @@
+#!/usr/bin/python3
+import queue
+from threading import Thread
+import paho.mqtt.client as mqtt
+import RPi.GPIO as GPIO
+from time import sleep, perf_counter
+import random
+
+
+a = b'[100,100,100,100]'
+#x = b'[100,100,100,100]'
+EN = 0
+RF_alt = 100
+GF_alt = 100
+BF_alt = 100
+WF_alt = 100
+
+R = 0
+
+GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(29, GPIO.OUT)
+GPIO.setup(31, GPIO.OUT)
+GPIO.setup(33, GPIO.OUT)
+GPIO.setup(35, GPIO.OUT)
+
+LEDR = GPIO.PWM(35, 1000)
+LEDG = GPIO.PWM(33, 1000)
+LEDB = GPIO.PWM(31, 1000)
+LEDW = GPIO.PWM(29, 1000)
+
+LEDR.start(0)
+LEDG.start(0)
+LEDB.start(0)
+LEDW.start(0)
+
+qLicht = queue.Queue()  #queu for fn2 mqqt Light value
+#qBlink = queue.Queue() #queu for fn3 mqtt Blink Value
+
+def fn1():
+        print("fn1")
+        client = mqtt.Client("mqtt-test") # client ID "mqtt-test"
+        client.connect('127.0.0.1', 1883)
+        client.subscribe([("/Licht/V",0),( "/Licht/Blink",1)])
+        client.on_message = on_message
+        client.loop_forever()
+
+def on_message(client, userdata, msg):
+        print(msg.payload)
+        if  msg.topic == "/Licht/V":
+                qLicht.put(msg.payload)
+
+#FN 2 nicht verwendet
+def fn2():
+        a = qLicht.get(timeout=1)
+        print(a)
+        R = (int(a[1:4]))-100
+        G = (int(a[5:8]))-100
+        B = (int(a[9:12]))-100
+        W = (int(a[13:16]))-100
+        LEDR.ChangeDutyCycle(R)
+        LEDG.ChangeDutyCycle(G)
+        LEDB.ChangeDutyCycle(B)
+        LEDW.ChangeDutyCycle(W)
+        print("LICHT", R)
+
+# auswerten mqqt value 
+def fn3():
+        global RF_alt
+        global GF_alt
+        global BF_alt
+        global WF_alt
+
+        value = qLicht.get()
+        print(value)
+        R = (int(value[1:4]))-100
+        G = (int(value[5:8]))-100
+        B = (int(value[9:12]))-100
+        W = (int(value[13:16]))-100
+
+        RF = ((int(value[19:22]))-99)/4
+        GF = ((int(value[23:26]))-99)/4
+        BF = ((int(value[27:30]))-99)/4
+        WF = ((int(value[31:34]))-99)/4
+        EN = (int(value[17:18]))
+        if (EN == 1)and (RF != RF_alt):         #Wenn Blink aktiv Frequnz ändern
+                print("R: BLINK", RF)
+                RF_alt = RF
+                LEDR.ChangeFrequency(RF)
+        if (EN == 1)and (GF != GF_alt):         #Wenn Blink aktiv Frequnz ändern
+                print("G: BLINK", GF)
+                RF_alt = GF
+                LEDG.ChangeFrequency(GF)
+        if (EN == 1)and (BF != BF_alt):         #Wenn Blink aktiv Frequnz ändern
+                print("B: BLINK", BF)
+                BF_alt = BF
+                LEDB.ChangeFrequency(BF)
+        if (EN == 1)and (WF != WF_alt):         #Wenn Blink aktiv Frequnz ändern
+                print("W: BLINK", WF)
+                WF_alt = WF
+                LEDW.ChangeFrequency(WF)
+
+        if (EN == 0):
+                LEDR.ChangeFrequency(1000)      #wenn Blink deaktiviert Frequenz auf Standart
+                LEDG.ChangeFrequency(1000)
+                LEDB.ChangeFrequency(1000)
+                LEDW.ChangeFrequency(1000)
+
+        LEDR.ChangeDutyCycle(R)
+        LEDG.ChangeDutyCycle(G)
+        LEDB.ChangeDutyCycle(B)
+        LEDW.ChangeDutyCycle(W)
+        print("LICHT", R)
+
+
+new_MQTT=Thread(target=fn1)
+new_MQTT.start()
+Blink=Thread(target=fn3)
+Blink.start()
+
+while True:
+        fn3()
